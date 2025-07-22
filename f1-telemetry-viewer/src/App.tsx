@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 // @ts-ignore
 import Plotly from "plotly.js-dist-min";
 
-const backendURL = "http://127.0.0.1:8000";
+const backendURL = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
 interface Driver {
   Abbreviation: string;
