@@ -51,6 +51,7 @@ function App() {
   // When the page loads, fetch races for the latest year and populate race dropdown
   useEffect(() => {
     async function fetchInitialRaces() {
+      console.log("Backend URL used:", backendURL);
       setLoading(true);
       const defaultYear = years[years.length - 1]; // Last year, e.g. 2024
       setYear(defaultYear);
