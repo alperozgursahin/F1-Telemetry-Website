@@ -13,10 +13,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-cache_dir = os.environ.get("F1_CACHE_DIR", "/tmp/f1_cache")
+cache_dir = os.environ.get("F1_CACHE_DIR", "./f1_cache")
 if not os.path.exists(cache_dir):
     os.makedirs(cache_dir)
-
 fastf1.Cache.enable_cache(cache_dir)
 
 @app.get("/")

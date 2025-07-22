@@ -19,47 +19,97 @@ const analysesOptions = [
 
 function App() {
   const [years] = useState<number[]>([2018, 2019, 2020, 2021, 2022, 2023, 2024]);
-  const [year, setYear] = useState<number>(2023);
 
+  // Initially no year selected, will be set from backend
+  const [year, setYear] = useState<number | null>(null);
   const [races, setRaces] = useState<{ EventName: string; EventDate: string }[]>([]);
   const [race, setRace] = useState<string>("");
 
-  const [sessions] = useState<string[]>(["Practice 1", "Practice 2", "Practice 3", "Qualifying", "Race"]);
+  const [loading, setLoading] = useState<boolean>(true); // For loading screen
+
+  const [sessions] = useState<string[]>([
+    "Practice 1",
+    "Practice 2",
+    "Practice 3",
+    "Qualifying",
+    "Race",
+  ]);
   const [session, setSession] = useState<string>("Race");
 
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [selectedDrivers, setSelectedDrivers] = useState<string[]>([]);
 
-  const [selectedAnalyses] = useState<string[]>(analysesOptions.map((a) => a.value)); // All analyses are static
+  const [selectedAnalyses] = useState<string[]>(analysesOptions.map((a) => a.value));
 
   const [telemetryData, setTelemetryData] = useState<any>({}); // driver -> metric -> data
-
-  // lapTimeData holds lap time array and tyre compounds per driver
-  // Type: { [driver:string]: { lap_times_min: number[], tyre_compounds: string[] } }
-  const [lapTimeData, setLapTimeData] = useState<Record<string, { lap_times_min: number[]; tyre_compounds: string[] }> | null>(null);
+  const [lapTimeData, setLapTimeData] = useState<
+    Record<string, { lap_times_min: number[]; tyre_compounds: string[] }> | null
+  >(null);
 
   const [driverToAdd, setDriverToAdd] = useState<string>("");
 
-  // Fetch races when year changes
+  // When the page loads, fetch races for the latest year and populate race dropdown
   useEffect(() => {
-    async function fetchRaces() {
-      const res = await fetch(`${backendURL}/races/${year}`);
-      const data = await res.json();
-      setRaces(data.races || []);
-      if (data.races && data.races.length > 0) {
-        setRace(data.races[0].EventName);
-      } else {
+    async function fetchInitialRaces() {
+      setLoading(true);
+      const defaultYear = years[years.length - 1]; // Last year, e.g. 2024
+      setYear(defaultYear);
+
+      try {
+        const res = await fetch(`${backendURL}/races/${defaultYear}`);
+        const data = await res.json();
+        setRaces(data.races || []);
+        if (data.races && data.races.length > 0) {
+          setRace(data.races[0].EventName);
+        } else {
+          setRace("");
+        }
+      } catch (err) {
+        console.error("Error loading races:", err);
+        setRaces([]);
         setRace("");
+      } finally {
+        setLoading(false);
       }
     }
-    fetchRaces();
+
+    fetchInitialRaces();
+  }, [years]);
+
+  // When year changes, fetch races again for that year
+  useEffect(() => {
+    if (year === null) return;
+
+    async function fetchRacesByYear() {
+      setLoading(true);
+      try {
+        const res = await fetch(`${backendURL}/races/${year}`);
+        const data = await res.json();
+        setRaces(data.races || []);
+        if (data.races && data.races.length > 0) {
+          setRace(data.races[0].EventName);
+        } else {
+          setRace("");
+        }
+      } catch (err) {
+        console.error("Error loading races:", err);
+        setRaces([]);
+        setRace("");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchRacesByYear();
+
+    // Reset other selections on year change
     setDrivers([]);
     setSelectedDrivers([]);
     setTelemetryData({});
     setLapTimeData(null);
   }, [year]);
 
-  // Clear data on race or session change
+  // When race or session changes, clear dependent data
   useEffect(() => {
     setDrivers([]);
     setSelectedDrivers([]);
@@ -68,32 +118,36 @@ function App() {
     setLapTimeData(null);
   }, [race, session]);
 
-  // Load drivers from backend
+  // Load drivers for the selected race and session from backend
   async function loadDrivers() {
     if (!race) {
       alert("Please select a race first.");
       return;
     }
     const eventEncoded = encodeURIComponent(race);
-    const res = await fetch(`${backendURL}/drivers/${year}/${eventEncoded}/${session}`);
-    const data = await res.json();
-    if (!data.error) {
-      setDrivers(data.drivers || []);
-      setDriverToAdd(data.drivers?.[0]?.Abbreviation || "");
-      setSelectedDrivers([]);
-      setTelemetryData({});
-      setLapTimeData(null);
-    } else {
-      alert("Failed to load drivers: " + data.error);
-      setDrivers([]);
-      setDriverToAdd("");
-      setSelectedDrivers([]);
-      setTelemetryData({});
-      setLapTimeData(null);
+    try {
+      const res = await fetch(`${backendURL}/drivers/${year}/${eventEncoded}/${session}`);
+      const data = await res.json();
+      if (!data.error) {
+        setDrivers(data.drivers || []);
+        setDriverToAdd(data.drivers?.[0]?.Abbreviation || "");
+        setSelectedDrivers([]);
+        setTelemetryData({});
+        setLapTimeData(null);
+      } else {
+        alert("Failed to load drivers: " + data.error);
+        setDrivers([]);
+        setDriverToAdd("");
+        setSelectedDrivers([]);
+        setTelemetryData({});
+        setLapTimeData(null);
+      }
+    } catch (err) {
+      alert("Error loading drivers: " + err);
     }
   }
 
-  // Add new driver and fetch telemetry data
+  // Add a driver and fetch telemetry data for them
   async function addDriver() {
     if (!driverToAdd) {
       alert("Please select a driver to add.");
@@ -129,18 +183,14 @@ function App() {
     }
   }
 
-  // Remove driver from list and data
+  // Remove a driver and clean up data
   function removeDriver(driver: string) {
-    setSelectedDrivers((prev) => {
-      const filtered = prev.filter((d) => d !== driver);
-      return filtered;
-    });
+    setSelectedDrivers((prev) => prev.filter((d) => d !== driver));
     setTelemetryData((prev: any) => {
       const newData = { ...prev };
       delete newData[driver];
       return newData;
     });
-
     setLapTimeData((prev) => {
       if (!prev) return prev;
       const newData = { ...prev };
@@ -149,7 +199,7 @@ function App() {
     });
   }
 
-  // Load lap times for all selected drivers
+  // Load lap times for selected drivers
   async function loadLapTimes() {
     if (selectedDrivers.length === 0) {
       setLapTimeData(null);
@@ -168,24 +218,40 @@ function App() {
         return;
       }
 
-      // Convert backend data format:
-      // {
-      //   driver1: { lap_times_min: [...], tyre_compounds: [...] },
-      //   driver2: {...}
-      // }
       setLapTimeData(data.lap_times);
-
     } catch (err) {
       alert("Error loading lap times: " + err);
       setLapTimeData(null);
     }
   }
 
-  // Update lap times when selected drivers change
+  // Reload lap times when selected drivers change
   useEffect(() => {
     loadLapTimes();
   }, [selectedDrivers]);
 
+  // Show loading screen if data is loading
+  if (loading) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          height: "100vh",
+          width: "100vw",
+          justifyContent: "center",
+          alignItems: "center",
+          fontSize: "1.5rem",
+          color: "#FF4136",
+          fontFamily: "Segoe UI, sans-serif",
+          backgroundColor: "#121212",
+        }}
+      >
+        Loading...
+      </div>
+    );
+  }
+
+  // Main UI render
   return (
     <div
       style={{
@@ -217,7 +283,7 @@ function App() {
         <div style={{ marginBottom: "1rem" }}>
           <label>Year:</label>
           <select
-            value={year}
+            value={year || ""}
             onChange={(e) => setYear(parseInt(e.target.value))}
             style={selectStyle}
           >
@@ -231,7 +297,11 @@ function App() {
 
         <div style={{ marginBottom: "1rem" }}>
           <label>Race:</label>
-          <select value={race} onChange={(e) => setRace(e.target.value)} style={selectStyle}>
+          <select
+            value={race}
+            onChange={(e) => setRace(e.target.value)}
+            style={selectStyle}
+          >
             {races.map((r) => (
               <option key={r.EventName} value={r.EventName}>
                 {r.EventName}
@@ -242,7 +312,11 @@ function App() {
 
         <div style={{ marginBottom: "1rem" }}>
           <label>Session:</label>
-          <select value={session} onChange={(e) => setSession(e.target.value)} style={selectStyle}>
+          <select
+            value={session}
+            onChange={(e) => setSession(e.target.value)}
+            style={selectStyle}
+          >
             {sessions.map((s) => (
               <option key={s} value={s}>
                 {s}
@@ -339,7 +413,7 @@ function App() {
         )}
       </div>
 
-      {/* Right panel: Analyses and Lap Time charts stacked */}
+      {/* Right panel: analysis charts and lap times */}
       <div
         style={{
           flex: 1,
@@ -357,11 +431,14 @@ function App() {
             style={{ backgroundColor: "#1a1a1a", padding: "12px", borderRadius: "8px" }}
           >
             <h2 style={{ color: "#FF851B", marginBottom: "12px" }}>{metric} Chart</h2>
-            <PlotlyMultiDriverChart metric={metric} telemetryData={telemetryData} drivers={selectedDrivers} />
+            <PlotlyMultiDriverChart
+              metric={metric}
+              telemetryData={telemetryData}
+              drivers={selectedDrivers}
+            />
           </div>
         ))}
 
-        {/* Lap Time chart */}
         {lapTimeData && Object.keys(lapTimeData).length > 0 && (
           <div style={{ backgroundColor: "#1a1a1a", padding: "12px", borderRadius: "8px" }}>
             <h2 style={{ color: "#FF851B", marginBottom: "12px" }}>Lap Times Comparison</h2>
@@ -417,6 +494,11 @@ function PlotlyMultiDriverChart({
     };
 
     Plotly.newPlot(ref.current, traces, layout, { responsive: true });
+
+    // Cleanup on unmount or dependencies change
+    return () => {
+      if (ref.current) Plotly.purge(ref.current);
+    };
   }, [metric, telemetryData, drivers]);
 
   return <div ref={ref} style={{ width: "100%", height: "350px" }} />;
@@ -432,11 +514,11 @@ function LapTimeMultiDriverChart({
   useEffect(() => {
     if (!ref.current) return;
 
-    // Calculate cumulative lap times for each driver
     const driverElapsedTimes = Object.entries(lapTimeData).map(([driver, data]) => {
       const { lap_times_min, tyre_compounds } = data;
+      // Calculate cumulative lap times for x-axis (elapsed time)
       const cumTimes = lap_times_min.reduce((acc: number[], curr, i) => {
-                if (i === 0) return [curr];
+        if (i === 0) return [curr];
         acc.push(acc[i - 1] + curr);
         return acc;
       }, []);
@@ -447,7 +529,6 @@ function LapTimeMultiDriverChart({
       ...driverElapsedTimes.map((d) => d.cumTimes[d.cumTimes.length - 1] || 0)
     );
 
-    // 5-minute ticks
     const tickInterval = 5;
     const tickVals: number[] = [];
     const tickTexts: string[] = [];
@@ -496,6 +577,7 @@ function LapTimeMultiDriverChart({
 
     Plotly.newPlot(ref.current, traces, layout, { responsive: true });
 
+    // Cleanup on unmount or dependency change
     return () => {
       if (ref.current) Plotly.purge(ref.current);
     };
@@ -504,7 +586,7 @@ function LapTimeMultiDriverChart({
   return <div ref={ref} style={{ width: "100%", height: 500 }} />;
 }
 
-// Format function:
+// Format helper: converts float minutes to mm:ss.mmm string
 function formatLapTime(minutesFloat: number): string {
   const totalMilliseconds = minutesFloat * 60 * 1000;
   const minutes = Math.floor(totalMilliseconds / 60000);
@@ -517,4 +599,3 @@ function formatLapTime(minutesFloat: number): string {
 }
 
 export default App;
-
